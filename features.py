@@ -1,6 +1,9 @@
-caffe_root = "/hpc/sw/caffe-2015.11.30-gpu/"
-caffe_source = "/home/ml0501/erdi/caffe/"
-data_root = "/home/ml0501/yelp/"
+# caffe_root = "/hpc/sw/caffe-2015.11.30-gpu/"
+# caffe_source = "/home/ml0501/erdi/caffe/"
+# data_root = "/home/ml0501/statefarm/"
+caffe_root = "/Users/erdicalli/dev/tools/caffe"
+caffe_source = "/Users/erdicalli/dev/tools/caffe"
+data_root = "/Users/erdicalli/dev/workspace/statefarm-data"
 
 import os
 import sys
