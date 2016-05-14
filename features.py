@@ -1,9 +1,9 @@
 # caffe_root = "/hpc/sw/caffe-2015.11.30-gpu/"
 # caffe_source = "/home/ml0501/erdi/caffe/"
 # data_root = "/home/ml0501/statefarm/"
-caffe_root = "/Users/erdicalli/dev/tools/caffe"
-caffe_source = "/Users/erdicalli/dev/tools/caffe"
-data_root = "/Users/erdicalli/dev/workspace/statefarm-data"
+caffe_root = "/Users/erdicalli/dev/tools/caffe/"
+caffe_source = "/Users/erdicalli/dev/tools/caffe/"
+data_root = "/Users/erdicalli/dev/workspace/statefarm-data/"
 
 import os
 import sys
@@ -15,11 +15,11 @@ sys.path.insert(0, caffe_root + 'python')
 import caffe
 
 ## Use GPU
-caffe.set_device(0)
-caffe.set_mode_gpu()
+# caffe.set_device(0)
+# caffe.set_mode_gpu()
 
 
-def extract_features(images, layer='fc7'):
+def extract_features(images):
     net = caffe.Net(caffe_source + 'models/bvlc_reference_caffenet/deploy.prototxt',
                     caffe_source + 'models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel',
                     caffe.TEST)
@@ -49,14 +49,17 @@ import h5py
 # f.close()
 f = h5py.File(data_root + 'train_image_fc67features.h5', 'w')
 filenames = f.create_dataset('photo_id', (0,), maxshape=(None,), dtype='|S54')
+classes = f.create_dataset('class', (0,), maxshape=(None,), dtype='|S54')
 feature = f.create_dataset('feature', (0, 8192), maxshape=(None, 8192))
 f.close()
 
 import pandas as pd
 
-train_photos = pd.read_csv(data_root + 'train_photo_to_biz_ids.csv')
-train_folder = data_root + 'train_photos/'
-train_images = [os.path.join(train_folder, str(x) + '.jpg') for x in train_photos['photo_id']]  # get full filename
+train_photos = pd.read_csv(data_root + 'driver_imgs_list.csv')
+train_folder = data_root + 'train/'
+
+train_images = np.array([[os.path.join(train_folder, x[0], x[1]), x[0], x[1]] for x in
+                zip(train_photos['classname'], train_photos['img'])])
 
 num_train = len(train_images)
 print "Number of training images: ", num_train
@@ -65,16 +68,18 @@ batch_size = 500
 # Training Images
 for i in range(0, num_train, batch_size):
     images = train_images[i: min(i + batch_size, num_train)]
-    features = extract_features(images, layer='fc7')
+    features = extract_features(images[:, 0])
     num_done = i + features.shape[0]
     f = h5py.File(data_root + 'train_image_fc67features.h5', 'r+')
     f['photo_id'].resize((num_done,))
-    f['photo_id'][i: num_done] = np.array(images)
+    f['photo_id'][i: num_done] = np.array(images[:, 2])
+    f['class'].resize((num_done,))
+    f['class'][i: num_done] = np.array(images[:, 1])
     f['feature'].resize((num_done, features.shape[1]))
     f['feature'][i: num_done, :] = features
     f.close()
-    if num_done % 20000 == 0 or num_done == num_train:
-        print "Train images processed: ", num_done
+    # if num_done % 2000 == 0 or num_done == num_train:
+    print "Train images processed: ", num_done
 
 ### Check the file content
 
@@ -92,21 +97,21 @@ filenames = f.create_dataset('photo_id', (0,), maxshape=(None,), dtype='|S54')
 feature = f.create_dataset('feature', (0, 4096), maxshape=(None, 4096))
 f.close()
 
-test_photos = pd.read_csv(data_root + 'test_photo_to_biz.csv')
-test_folder = data_root + 'test_photos/'
-test_images = [os.path.join(test_folder, str(x) + '.jpg') for x in test_photos['photo_id'].unique()]
+test_folder = data_root + 'test/'
+test_images = np.array([[os.path.join(test_folder, x), x] for x in os.listdir(test_folder)])
+
 num_test = len(test_images)
 print "Number of test images: ", num_test
 
 # Test Images
 for i in range(0, num_test, batch_size):
     images = test_images[i: min(i + batch_size, num_test)]
-    features = extract_features(images, layer='fc7')
+    features = extract_features(images[:, 0])
     num_done = i + features.shape[0]
 
     f = h5py.File(data_root + 'test_image_fc67features.h5', 'r+')
     f['photo_id'].resize((num_done,))
-    f['photo_id'][i: num_done] = np.array(images)
+    f['photo_id'][i: num_done] = np.array(images[:, 1])
     f['feature'].resize((num_done, features.shape[1]))
     f['feature'][i: num_done, :] = features
     f.close()
