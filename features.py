@@ -18,8 +18,15 @@ import caffe
 # caffe.set_device(0)
 # caffe.set_mode_gpu()
 
+# LAYERS = ['fc7']
+# LAYERS = ['fc6']
+LAYERS = ['fc6', 'fc7']
+file_identifier = "".join(LAYERS)
+LAYER_SIZE = 4096
+DATA_POINTS = LAYER_SIZE * len(LAYERS)
 
-def extract_features(images):
+
+def extract_features(images, layers):
     net = caffe.Net(caffe_source + 'models/bvlc_reference_caffenet/deploy.prototxt',
                     caffe_source + 'models/bvlc_reference_caffenet/bvlc_reference_caffenet.caffemodel',
                     caffe.TEST)
@@ -36,10 +43,18 @@ def extract_features(images):
     net.blobs['data'].reshape(num_images, 3, 227, 227)
     net.blobs['data'].data[...] = map(lambda x: transformer.preprocess('data', caffe.io.load_image(x)), images)
     out = net.forward()
-
-    combined_features = np.append(net.blobs['fc7'].data, net.blobs['fc6'].data, axis=1)
-    return combined_features / np.linalg.norm(combined_features)
-
+    combined_features = None
+    if len(layers) > 1:
+        for layer in layers:
+            if combined_features is None:
+                combined_features = net.blobs[layer].data
+            else:
+                combined_features = np.append(combined_features, net.blobs[layer].data, axis=1)
+        normalizing_constant = np.linalg.norm(combined_features, axis=1)
+        combined_features = np.divide(combined_features, normalizing_constant[:, None])
+    else:
+        combined_features = np.array(net.blobs[layers[0]].data)
+    return combined_features
 
 # extract image features and save it to .h5
 
@@ -47,10 +62,10 @@ def extract_features(images):
 import h5py
 
 # f.close()
-f = h5py.File(data_root + 'train_image_fc67features.h5', 'w')
+f = h5py.File(data_root + 'train_image_' + file_identifier + 'features.h5', 'w')
 filenames = f.create_dataset('photo_id', (0,), maxshape=(None,), dtype='|S54')
 classes = f.create_dataset('class', (0,), maxshape=(None,), dtype='|S54')
-feature = f.create_dataset('feature', (0, 8192), maxshape=(None, 8192))
+feature = f.create_dataset('feature', (0, DATA_POINTS), maxshape=(None, DATA_POINTS))
 f.close()
 
 import pandas as pd
@@ -59,7 +74,7 @@ train_photos = pd.read_csv(data_root + 'driver_imgs_list.csv')
 train_folder = data_root + 'train/'
 
 train_images = np.array([[os.path.join(train_folder, x[0], x[1]), x[0], x[1]] for x in
-                zip(train_photos['classname'], train_photos['img'])])
+                         zip(train_photos['classname'], train_photos['img'])])
 
 num_train = len(train_images)
 print "Number of training images: ", num_train
@@ -68,9 +83,9 @@ batch_size = 500
 # Training Images
 for i in range(0, num_train, batch_size):
     images = train_images[i: min(i + batch_size, num_train)]
-    features = extract_features(images[:, 0])
+    features = extract_features(images[:, 0], layers=LAYERS)
     num_done = i + features.shape[0]
-    f = h5py.File(data_root + 'train_image_fc67features.h5', 'r+')
+    f = h5py.File(data_root + 'train_image_' + file_identifier + 'features.h5', 'r+')
     f['photo_id'].resize((num_done,))
     f['photo_id'][i: num_done] = np.array(images[:, 2])
     f['class'].resize((num_done,))
@@ -83,7 +98,7 @@ for i in range(0, num_train, batch_size):
 
 ### Check the file content
 
-f = h5py.File(data_root + 'train_image_fc67features.h5', 'r')
+f = h5py.File(data_root + 'train_image_' + file_identifier + 'features.h5', 'r')
 print 'train_image_features.h5:'
 for key in f.keys():
     print key, f[key].shape
@@ -92,9 +107,9 @@ print "\nA photo:", f['photo_id'][0]
 print "Its feature vector (first 10-dim): ", f['feature'][0][0:10], " ..."
 f.close()
 
-f = h5py.File(data_root + 'test_image_fc67features.h5', 'w')
+f = h5py.File(data_root + 'test_image_' + file_identifier + 'features.h5', 'w')
 filenames = f.create_dataset('photo_id', (0,), maxshape=(None,), dtype='|S54')
-feature = f.create_dataset('feature', (0, 4096), maxshape=(None, 4096))
+feature = f.create_dataset('feature', (0, DATA_POINTS), maxshape=(None, DATA_POINTS))
 f.close()
 
 test_folder = data_root + 'test/'
@@ -106,10 +121,10 @@ print "Number of test images: ", num_test
 # Test Images
 for i in range(0, num_test, batch_size):
     images = test_images[i: min(i + batch_size, num_test)]
-    features = extract_features(images[:, 0])
+    features = extract_features(images[:, 0], layers=LAYERS)
     num_done = i + features.shape[0]
 
-    f = h5py.File(data_root + 'test_image_fc67features.h5', 'r+')
+    f = h5py.File(data_root + 'test_image_' + file_identifier + 'features.h5', 'r+')
     f['photo_id'].resize((num_done,))
     f['photo_id'][i: num_done] = np.array(images[:, 1])
     f['feature'].resize((num_done, features.shape[1]))
@@ -119,9 +134,10 @@ for i in range(0, num_test, batch_size):
         print "Test images processed: ", num_done
 
 ### Check the file content
-f = h5py.File(data_root + 'test_image_fc67features.h5', 'r')
+f = h5py.File(data_root + 'test_image_' + file_identifier + 'features.h5', 'r')
 for key in f.keys():
     print key, f[key].shape
+
 print "\nA photo:", f['photo_id'][0]
 print "feature vector: (first 10-dim)", f['feature'][0][0:10], " ..."
 f.close()
