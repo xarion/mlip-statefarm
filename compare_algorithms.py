@@ -1,50 +1,53 @@
+
 import sys
 import time
 
 import numpy as np
 import pandas as pd
-from sklearn import clone, cross_validation
+from sklearn import clone
+from sklearn.cross_validation import KFold
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
-from sklearn.feature_selection import SelectFromModel
 from sklearn.linear_model import LogisticRegressionCV, ElasticNetCV, LarsCV, LassoCV, LassoLarsCV, \
     MultiTaskElasticNetCV, \
     MultiTaskLassoCV, OrthogonalMatchingPursuitCV, RidgeClassifierCV
-from sklearn.metrics import f1_score
+from sklearn.metrics import log_loss
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.preprocessing import MultiLabelBinarizer, normalize
+from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-data_root = '/Users/erdicalli/dev/workspace/yelp/data/'
-submission_root = '/Users/erdicalli/dev/workspace/yelp/submission/'
+data_root = '/Users/erdicalli/dev/workspace/statefarm-data/'
+submission_root = '/Users/erdicalli/dev/workspace/statefarm/submissions/'
+# data_root = '/home/ml0501/statefarm/'
+# submission_root = '/home/ml0501/erdi/submissions/'
 
-train_df = pd.read_csv(data_root + "train_merged.csv")
+import h5py
 
-
-def convert_label_to_array(str_label):
-    str_label = str_label[1:-1]
-    str_label = str_label.split(',')
-    return [int(x) for x in str_label if len(x) > 0]
-
-
-def convert_feature_to_vector(str_feature):
-    str_feature = str_feature[1:-1]
-    str_feature = str_feature.split(',')
-    return [float(x) for x in str_feature]
+# LAYERS = ['fc6']
+LAYERS = ['fc7']
+# LAYERS = ['fc6', 'fc7']
+file_identifier = "".join(LAYERS)
+LAYER_SIZE = 4096
+DATA_POINTS = LAYER_SIZE * len(LAYERS)
+num_classes = 10
 
 
-labels = np.array([convert_label_to_array(y) for y in train_df['label']])
-features = np.array([convert_feature_to_vector(x) for x in train_df['feature vector']])
-features = features[:, :-9]
-features = normalize(np.append(normalize(features[:, :8192]), normalize(features[:, 8192:]), axis=1))
-# for f, b in zip(features, train_df["business"]):
-#     if len(f) != 8446:
-#         print b
+def convert_label_to_class_array(str_label):
+    return [int(str_label[1:])]
 
 
+f = h5py.File(data_root + 'train_image_' + file_identifier + 'features.h5', 'r')
+labels = [convert_label_to_class_array(x) for x in f['class']]
+features = np.copy(f["feature"])
+f.close()
+
+f = h5py.File(data_root + 'test_image_' + file_identifier + 'features.h5', 'r')
+test_features = np.copy(f["feature"])
+test_photo_ids = np.copy(f["photo_id"])
+f.close()
 
 names = [
     "SVC(kernel='rbf', probability=True)",
@@ -114,7 +117,7 @@ classifiers = [
     LarsCV(),
     LassoCV(max_iter=10000),
     LassoLarsCV(),
-    LogisticRegressionCV(), #17
+    LogisticRegressionCV(),
     MultiTaskElasticNetCV(),
     MultiTaskLassoCV(),
     OrthogonalMatchingPursuitCV(),
@@ -126,66 +129,53 @@ if len(sys.argv) > 1:
 
 name = names[algorithm]
 clf = classifiers[algorithm]
-output_file_name = output_file_names[algorithm]
+output_file_name = output_file_names[algorithm] + file_identifier
 
 t = time.time()
-mlb = MultiLabelBinarizer()
 random_state = np.random.RandomState(0)
-binarized_labels = mlb.fit_transform(labels)
 print "Fitting classifier " + name
-classifier = OneVsRestClassifier(clf, n_jobs=-2)
-ovrlsvc = clone(classifier)
-print "Fitting Classifier"
-ovrlsvc.fit(features, binarized_labels)
-print "Creating Model"
-model = SelectFromModel(ovrlsvc, prefit=True)
-print "Transforming Features"
-reduced_features = model.transform(features)
-print "New shape of features : " + str(reduced_features.shape)
-cross_validation_classifier = clone(classifier)
-print "Running Cross Validation with transformed feature set"
-predictions = cross_validation.cross_val_predict(cross_validation_classifier, reduced_features, binarized_labels, cv=10)
+classifier = OneVsRestClassifier(clf, n_jobs=2)
+labels = MultiLabelBinarizer().fit_transform(labels)
+
+# this is what happens when sklearn doesn't support cross validation for class probabilities.
+kf = KFold(features.shape[0], n_folds=10)
+predictions = None
+print "Running 10-Fold Cross Validation"
+step = 0
+for train_index, test_index in kf:
+    print "Running Fold: %d" % (step)
+    fold_train_features, fold_test_features = features[train_index, :], features[test_index, :]
+    fold_train_labels, fold_test_labels = labels[train_index, :], labels[test_index, :]
+    cross_validation_classifier = clone(classifier)
+    cross_validation_classifier.fit(fold_train_features, fold_train_labels)
+    fold_predictions = cross_validation_classifier.predict_proba(fold_test_features)
+    if predictions is None:
+        predictions = fold_predictions
+    else:
+        predictions = np.concatenate((predictions, fold_predictions), axis=0)
+    step += 1
+
 print "Classifier: " + name
 print "Time passed: ", "{0:.1f}".format(time.time() - t), "sec"
-print "Micro F1 score: ", f1_score(binarized_labels, predictions, average='micro')
-print "Individual Class F1 score: ", f1_score(binarized_labels, predictions, average=None)
+print "Log Loss: ", log_loss(labels, predictions)
 
-
-print "Fitting new classifier with full data and reduced features"
-classifier.fit(reduced_features, binarized_labels)
+print "Fitting Classifier"
+classifier.fit(features, labels)
 
 print "Calculating Predictions..."
 
-files = ["xaa", "xab", "xac", "xad", "xae", "xaf"]
-header = True
-for chunk in files:
-    t = time.time()
-    print "chunk: " + chunk
-    test_df = pd.read_csv(data_root + chunk)
-    # test_features = test_df['feature vector'].values
-    test_features = np.array([convert_feature_to_vector(x) for x in test_df['feature vector']])
-    test_features = normalize(np.append(normalize(test_features[:, :8192]), normalize(test_features[:, 8192:]), axis=1))
-    reduced_test_features = model.transform(test_features)
+t = time.time()
+predicted_class_probabilities = classifier.predict_proba(test_features)
 
-    binarized_predicted_labels = classifier.predict(reduced_test_features)
+print "Calculated Predictions... Time passed: ", "{0:.1f}".format(time.time() - t), "sec"
+print "Writing predictions to output file"
+index = 1
+df = pd.DataFrame(columns=['img', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'])
+for i in zip(test_photo_ids, predicted_class_probabilities):
+    result = [i[0]]
+    result.extend(i[1])
+    df.loc[index] = result
+    index += 1
 
-    predicted_labels = mlb.inverse_transform(binarized_predicted_labels)
-
-    print "Calculated Predictions... Time passed: ", "{0:.1f}".format(time.time() - t), "sec"
-    print "Writing predictions to output file"
-    test_data_frame = pd.read_csv(data_root + chunk)
-    df = pd.DataFrame(columns=['business_id', 'labels'])
-
-    for i in range(len(test_data_frame)):
-        biz = test_data_frame.loc[i]['business']
-        label = predicted_labels[i]
-        label = str(label)[1:-1].replace(",", " ")
-        df.loc[i] = [str(biz), label]
-
-    if header:
-        with open(submission_root + "reduced_" + output_file_name + ".csv", 'w') as f:
-            df.to_csv(f, index=False, header=header)
-        header = False
-    else:
-        with open(submission_root + "reduced_" + output_file_name + ".csv", 'a') as f:
-            df.to_csv(f, index=False, header=header)
+with open(submission_root + "results" + output_file_name + ".csv", 'w') as f:
+    df.to_csv(f, index=False, header=True, float_format='%.5f')
