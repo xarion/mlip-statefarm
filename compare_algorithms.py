@@ -19,6 +19,8 @@ from sklearn.preprocessing import MultiLabelBinarizer
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
+from metrics import multi_class_log_loss, log_loss_score_function
+
 data_root = '/Users/erdicalli/dev/workspace/statefarm-data/'
 submission_root = '/Users/erdicalli/dev/workspace/statefarm/submissions/'
 # data_root = '/home/ml0501/statefarm/'
@@ -112,7 +114,7 @@ classifiers = [
     LarsCV(),
     LassoCV(max_iter=10000),
     LassoLarsCV(),
-    LogisticRegressionCV(),
+    LogisticRegressionCV(scoring=multi_class_log_loss),
     MultiTaskElasticNetCV(),
     MultiTaskLassoCV(),
     OrthogonalMatchingPursuitCV(),
@@ -152,7 +154,7 @@ for train_index, test_index in kf:
 
 print "Classifier: " + name
 print "Time passed: ", "{0:.1f}".format(time.time() - t), "sec"
-print "Log Loss: ", log_loss(labels, predictions)
+print "Log Loss: ", log_loss_score_function(labels, predictions)
 
 print "Fitting Classifier"
 classifier.fit(features, labels)
