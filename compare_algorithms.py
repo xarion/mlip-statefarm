@@ -181,4 +181,4 @@ for i in zip(test_photo_ids, predicted_class_probabilities):
     index += 1
 
 with open(submission_root + "results" + output_file_name + ".csv", 'w') as f:
-    df.to_csv(f, index=False, header=True, float_format='%.5f')
+    df.to_csv(f, index=False, header=True, float_format='%e')

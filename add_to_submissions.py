@@ -11,4 +11,4 @@ for i in range(1, 11):
 
 df.columns = ['img', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9']
 
-df.to_csv(file_name + '.added', index=False, header=True)
+df.to_csv(file_name + '.added', index=False, header=True, float_format="%e")
