@@ -44,11 +44,6 @@ labels = [convert_label_to_class_array(x) for x in f['class']]
 features = np.copy(f["feature"])
 f.close()
 
-f = h5py.File(data_root + 'test_image_' + file_identifier + 'features.h5', 'r')
-test_features = np.copy(f["feature"])
-test_photo_ids = np.copy(f["photo_id"])
-f.close()
-
 names = [
     "SVC(kernel='rbf', probability=True)",
     "SVC(kernel='linear', probability=True)",
@@ -163,6 +158,14 @@ print "Fitting Classifier"
 classifier.fit(features, labels)
 
 print "Calculating Predictions..."
+
+del features
+del labels
+
+f = h5py.File(data_root + 'test_image_' + file_identifier + 'features.h5', 'r')
+test_features = np.copy(f["feature"])
+test_photo_ids = np.copy(f["photo_id"])
+f.close()
 
 t = time.time()
 predicted_class_probabilities = classifier.predict_proba(test_features)
